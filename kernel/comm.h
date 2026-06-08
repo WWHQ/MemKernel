@@ -1,6 +1,3 @@
-#ifndef MEMKERNEL_COMM_H
-#define MEMKERNEL_COMM_H
-
 struct CopyMemory
 {
 	pid_t pid;
@@ -23,5 +20,3 @@ enum Operations
 	OP_WRITE_MEM = 0x30002,
 	OP_MODULE_BASE = 0x30003,
 };
-
-#endif
