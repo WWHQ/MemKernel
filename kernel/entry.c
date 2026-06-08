@@ -12,29 +12,64 @@
 static long (*original_binder_ioctl)(struct file *, unsigned int, unsigned long);
 
 // 核心逻辑函数
-static long dispatch_ioctl_parasite(struct file *file, unsigned int cmd, unsigned long arg)
+long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
 {
-    struct CopyMemory cm;
-    struct ModuleBase mb;
-    char name[0x100] = {0};
-
-    switch (cmd) {
-    case OP_READ_MEM:
-        if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-        return readwrite_process_memory(cm.pid, cm.addr, cm.buffer, cm.size, false);
-    case OP_WRITE_MEM:
-        if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-        return readwrite_process_memory(cm.pid, cm.addr, cm.buffer, cm.size, true);
-    case OP_MODULE_BASE:
-        if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 ||
-            copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0) return -1;
-        mb.base = get_module_base(mb.pid, name);
-        if (copy_to_user((void __user *)arg, &mb, sizeof(mb)) != 0) return -1;
-        break;
-    default:
-        return -ENOIOCTLCMD;
-    }
-    return 0;
+	static COPY_MEMORY cm;
+	static MODULE_BASE mb;
+	static char key[0x100] = {0};
+	static char name[0x100] = {0};
+	static bool is_verified = false;
+    // 并未启用
+	if (cmd == OP_INIT_KEY && !is_verified)
+	{
+		if (copy_from_user(key, (void __user *)arg, sizeof(key) - 1) != 0)
+		{
+			return -1;
+		}
+	}
+	switch (cmd)
+	{
+	case OP_READ_MEM:
+	{
+		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0)
+		{
+			return -1;
+		}
+		if (read_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false)
+		{
+			return -1;
+		}
+		break;
+	}
+	case OP_WRITE_MEM:
+	{
+		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0)
+		{
+			return -1;
+		}
+		if (write_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false)
+		{
+			return -1;
+		}
+		break;
+	}
+	case OP_MODULE_BASE:
+	{
+		if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0)
+		{
+			return -1;
+		}
+		mb.base = get_module_base(mb.pid, name);
+		if (copy_to_user((void __user *)arg, &mb, sizeof(mb)) != 0)
+		{
+			return -1;
+		}
+		break;
+	}
+	default:
+		break;
+	}
+	return 0;
 }
 
 // 拦截路由函数
