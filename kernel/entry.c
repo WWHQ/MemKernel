@@ -14,10 +14,12 @@ static long (*original_binder_ioctl)(struct file *, unsigned int, unsigned long)
 // 核心逻辑函数
 static long dispatch_ioctl_parasite(struct file *const file, unsigned int const cmd, unsigned long const arg)
 {
-	static COPY_MEMORY cm;
-	static MODULE_BASE mb;
+	// 移除 static，使用栈内存防止并发重入导致数据混乱
+	COPY_MEMORY cm;
+	MODULE_BASE mb;
+	char name[0x100] = {0};
+	
 	static char key[0x100] = {0};
-	static char name[0x100] = {0};
 	static bool is_verified = false;
     // 并未启用
 	if (cmd == OP_INIT_KEY && !is_verified)
