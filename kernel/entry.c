@@ -12,7 +12,7 @@
 static long (*original_binder_ioctl)(struct file *, unsigned int, unsigned long);
 
 // 核心逻辑函数
-long dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
+static long dispatch_ioctl_parasite(struct file *const file, unsigned int const cmd, unsigned long const arg)
 {
 	static COPY_MEMORY cm;
 	static MODULE_BASE mb;
