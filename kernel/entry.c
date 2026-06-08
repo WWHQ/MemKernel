@@ -67,6 +67,7 @@ static long dispatch_ioctl_parasite(struct file *const file, unsigned int const 
 		break;
 	}
 	default:
+		return -ENOIOCTLCMD;
 		break;
 	}
 	return 0;
