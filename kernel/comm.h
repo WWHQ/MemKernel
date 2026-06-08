@@ -18,6 +18,7 @@ struct ModuleBase
 
 enum Operations
 {
+	OP_INIT_KEY = 0x30000, // 未启用
 	OP_READ_MEM = 0x30001,
 	OP_WRITE_MEM = 0x30002,
 	OP_MODULE_BASE = 0x30003,
