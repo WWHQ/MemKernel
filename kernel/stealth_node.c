@@ -1,56 +1,63 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/kprobes.h>
-#include <linux/syscalls.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/compiler.h>
 #include "stealth_node.h"
 
-// 1. 核心：定义一个全局的“影子路径”
-// 当任何程序访问此路径时，我们进行重定向
-static int is_target_path(const char __user *pathname) {
+static struct kprobe kp_access, kp_stat, kp_ioctl;
+
+static __maybe_unused int handler_access_pre(struct kprobe *p, struct pt_regs *regs) {
     char name[64];
-    if (copy_from_user(name, pathname, sizeof(name)) == 0) {
-        return strstr(name, TARGET_NODE_NAME) != NULL;
+    const char __user *path = (const char __user *)regs->regs[1];
+    if (copy_from_user(name, path, sizeof(name)) == 0 && strstr(name, TARGET_NODE_NAME)) {
+        regs->regs[0] = 0; // 强制返回 0 (成功)
+        return 1; 
     }
     return 0;
 }
 
-// 2. 拦截 sys_faccessat (用于 access() 检查文件是否存在)
-static struct kprobe kp_access = { .symbol_name = "sys_faccessat" };
-static int handler_access_pre(struct kprobe *p, struct pt_regs *regs) {
-    if (is_target_path((const char __user *)regs->regs[1])) {
-        // 直接返回 0，告诉游戏：该文件存在且可访问
-        regs->regs[0] = 0; 
-        return 1; // 阻止原函数执行
-    }
-    return 0;
-}
-
-// 3. 拦截 sys_newfstatat (用于 stat() 检查文件属性)
-static struct kprobe kp_stat = { .symbol_name = "sys_newfstatat" };
-static int handler_stat_post(struct kprobe *p, struct pt_regs *regs, unsigned long flags) {
+static __maybe_unused int handler_stat_post(struct kprobe *p, struct pt_regs *regs, unsigned long flags) {
     struct kstat __user *statbuf = (struct kstat __user *)regs->regs[2];
     if (statbuf) {
-        // 伪造：告诉游戏这是一个合法的字符设备
         unsigned int mode = S_IFCHR | 0666;
         copy_to_user(&statbuf->mode, &mode, sizeof(mode));
     }
     return 0;
 }
 
-// 4. 拦截 sys_openat
-static struct kprobe kp_open = { .symbol_name = "sys_openat" };
-static int handler_open_pre(struct kprobe *p, struct pt_regs *regs) {
-    if (is_target_path((const char __user *)regs->regs[1])) {
-        // 重定向到一个合法的系统设备，确保句柄合法
-        copy_to_user((void __user *)regs->regs[1], "/dev/null", 10);
+static __maybe_unused int handler_ioctl_pre(struct kprobe *p, struct pt_regs *regs) {
+    struct file *file = (struct file *)regs->regs[1];
+    if (file && file->f_path.dentry && strstr(file->f_path.dentry->d_name.name, TARGET_NODE_NAME)) {
+        regs->regs[0] = 0; // 模拟握手成功
+        return 1;
     }
     return 0;
 }
 
 static int __init stealth_node_init(void) {
+    kp_access.symbol_name = "sys_faccessat";
+    kp_access.pre_handler = handler_access_pre;
     register_kprobe(&kp_access);
+
+    kp_stat.symbol_name = "sys_newfstatat";
+    kp_stat.post_handler = handler_stat_post;
     register_kprobe(&kp_stat);
-    register_kprobe(&kp_open);
+
+    kp_ioctl.symbol_name = "vfs_ioctl";
+    kp_ioctl.pre_handler = handler_ioctl_pre;
+    register_kprobe(&kp_ioctl);
+    
     return 0;
 }
+
+static void __exit stealth_node_exit(void) {
+    unregister_kprobe(&kp_access);
+    unregister_kprobe(&kp_stat);
+    unregister_kprobe(&kp_ioctl);
+}
+
 late_initcall(stealth_node_init);
+module_exit(stealth_node_exit);
+MODULE_LICENSE("GPL");
