@@ -6,8 +6,9 @@
 #include <linux/set_memory.h>
 
 // 驱动节点/dev/virtpipe-common-syzs
-#include <linux/cdev.h>
-#include <linux/device.h>
+#include <linux/namei.h>
+#include <linux/kprobes.h>
+#include <linux/uaccess.h>
 
 #include "comm.h"
 #include "memory.h"
@@ -105,38 +106,52 @@ static int __init parasite_init(void) {
 }
 
 // ******************************* 
-// 1. 定义“哑”IOCTL 处理函数，所有请求直接返回 0
-static long dummy_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    // 游戏询问任何环境参数，都返回 0 (表示成功/已连接)
-    return 0; 
-}
-
-// 2. 定义 file_operations，只实现必须的 open 和 ioctl
-static const struct file_operations dummy_fops = {
-    .owner = THIS_MODULE,
-    .open = simple_open, // 使用内核内置的空打开函数
-    .unlocked_ioctl = dummy_ioctl,
+// 目标节点路径
+#define TARGET_NODE "/dev/virtpipe-common-syzs"
+// Hook 目标：vfs_ioctl
+static struct kprobe kp = {
+    .symbol_name = "vfs_ioctl",
 };
 
-// 3. 将其关联到节点
-static struct cdev my_cdev;
-static struct class *my_class;
-
-static int __init setup_dummy_driver(void) {
-    dev_t dev_num;
-    alloc_chrdev_region(&dev_num, 0, 1, "fake_node_driver");
+// 拦截逻辑
+static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
+    // ARM64 寄存器约定：x1 为 file 结构体指针，x2 为 cmd
+    struct file *file = (struct file *)regs->regs[1];
     
-    cdev_init(&my_cdev, &dummy_fops);
-    cdev_add(&my_cdev, dev_num, 1);
-    
-    // 创建设备节点，关联 dummy_fops
-    my_class = class_create(THIS_MODULE, "fake_node_class");
-    device_create(my_class, NULL, dev_num, NULL, "virtpipe-common-syzs");
-    
+    if (file && file->f_path.dentry) {
+        // 匹配文件名
+        if (strcmp(file->f_path.dentry->d_name.name, "virtpipe-common-syzs") == 0) {
+            // 强行返回 0，模拟握手成功
+            regs->regs[0] = 0; 
+            
+            // 跳过原始 vfs_ioctl 的执行，防止返回 -ENODEV
+            p->post_handler = NULL;
+            return 1; 
+        }
+    }
     return 0;
 }
 
-late_initcall(setup_dummy_driver);
+// 初始化：创建孤儿节点并挂载 Hook
+static int __init parasite_init(void) {
+    struct dentry *dentry;
+    struct path path;
+
+    // 1. 静默创建字符设备节点
+    dentry = kern_path_create(AT_FDCWD, TARGET_NODE, &path, 0);
+    if (!IS_ERR(dentry)) {
+        // 创建字符设备节点 (S_IFCHR)，无需绑定驱动 (Major/Minor 设为 0)
+        vfs_mknod(d_inode(path.dentry), dentry, 0666 | S_IFCHR, MKDEV(0, 0));
+        done_path_create(&path, dentry);
+    }
+
+    // 2. 挂载 Kprobe 拦截 IOCTL
+    kp.pre_handler = handler_pre;
+    register_kprobe(&kp);
+
+    return 0;
+}
+late_initcall(parasite_init);
 
 // 使用 late_initcall 确保在设备驱动初始化后执行
 late_initcall(parasite_init);
