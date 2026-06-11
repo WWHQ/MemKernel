@@ -1,10 +1,11 @@
 #include <linux/init.h>
 #include <linux/module.h>
 #include <linux/fs.h>
+#include <linux/miscdevice.h>
 #include "stealth_node.h"
 
 static long dummy_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    return 0; // 默认维持现有逻辑
+    return 0; 
 }
 
 static const struct file_operations dummy_fops = {
