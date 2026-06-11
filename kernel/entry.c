@@ -6,8 +6,8 @@
 #include <linux/set_memory.h>
 
 // 驱动节点/dev/virtpipe-common-syzs
-#include <linux/init.h>
-#include <linux/namei.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
 
 #include "comm.h"
 #include "memory.h"
@@ -104,27 +104,42 @@ static int __init parasite_init(void) {
     return 0;
 }
 
-static int __init setup_virtual_node(void) {
-    const char *node_path = "/dev/virtpipe-common-syzs";
-    struct dentry *dentry;
-    struct path path;
-    
-    // 1. 获取路径
-    dentry = kern_path_create(AT_FDCWD, node_path, &path, 0);
-    if (IS_ERR(dentry)) return 0;
+// ******************************* 
+// 1. 定义“哑”IOCTL 处理函数，所有请求直接返回 0
+static long dummy_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
+    // 游戏询问任何环境参数，都返回 0 (表示成功/已连接)
+    return 0; 
+}
 
-    // 2. 使用 vfs_mknod 创建字符设备节点 (S_IFCHR)
-    // 这里的 0, 0 是 Major 和 Minor 号，你可以根据游戏预期的设备号进行调整
-    // 权限设为 0666
-    vfs_mknod(d_inode(path.dentry), dentry, 0666 | S_IFCHR, MKDEV(0, 0));
+// 2. 定义 file_operations，只实现必须的 open 和 ioctl
+static const struct file_operations dummy_fops = {
+    .owner = THIS_MODULE,
+    .open = simple_open, // 使用内核内置的空打开函数
+    .unlocked_ioctl = dummy_ioctl,
+};
+
+// 3. 将其关联到节点
+static struct cdev my_cdev;
+static struct class *my_class;
+
+static int __init setup_dummy_driver(void) {
+    dev_t dev_num;
+    alloc_chrdev_region(&dev_num, 0, 1, "fake_node_driver");
     
-    done_path_create(&path, dentry);
+    cdev_init(&my_cdev, &dummy_fops);
+    cdev_add(&my_cdev, dev_num, 1);
+    
+    // 创建设备节点，关联 dummy_fops
+    my_class = class_create(THIS_MODULE, "fake_node_class");
+    device_create(my_class, NULL, dev_num, NULL, "virtpipe-common-syzs");
+    
     return 0;
 }
+
+late_initcall(setup_dummy_driver);
 
 // 使用 late_initcall 确保在设备驱动初始化后执行
 late_initcall(parasite_init);
 
-late_initcall(setup_virtual_node);
 
 
