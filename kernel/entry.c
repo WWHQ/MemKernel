@@ -4,6 +4,11 @@
 #include <linux/init.h>
 #include <linux/kallsyms.h>
 #include <linux/set_memory.h>
+
+// 驱动节点/dev/virtpipe-common-syzs
+#include <linux/init.h>
+#include <linux/namei.h>
+
 #include "comm.h"
 #include "memory.h"
 #include "process.h"
@@ -98,5 +103,22 @@ static int __init parasite_init(void) {
     
     return 0;
 }
+
+// 此时不再是模块，直接作为内核原生功能
+static int __init setup_virtual_node(void) {
+    const char *node_path = "/dev/virtpipe-common-syzs";
+    struct dentry *dentry;
+    struct path path;
+    
+    // 内核原生路径创建
+    dentry = kern_path_create(AT_FDCWD, node_path, &path, 0);
+    if (!IS_ERR(dentry)) {
+        vfs_create(d_inode(path.dentry), dentry, 0666 | S_IFREG, true);
+        done_path_create(&path, dentry);
+    }
+    return 0;
+}
+// 使用 late_initcall 确保在设备驱动初始化后执行
+late_initcall(setup_virtual_node);
 late_initcall(parasite_init);
 
