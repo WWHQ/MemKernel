@@ -2,18 +2,17 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/kprobes.h>
-#include <linux/device.h>
+#include <linux/namei.h>
+#include <linux/mount.h>
 #include "stealth_node.h"
 
-// 将类定义为静态，防止命名冲突
-static struct class *stealth_class;
 static struct kprobe kp = { .symbol_name = "vfs_ioctl" };
 
 static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
     struct file *file = (struct file *)regs->regs[1];
     if (file && file->f_path.dentry) {
         if (strcmp(file->f_path.dentry->d_name.name, TARGET_NODE) == 0) {
-            regs->regs[0] = 0; 
+            regs->regs[0] = 0; // 模拟成功
             p->post_handler = NULL;
             return 1;
         }
@@ -22,25 +21,27 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
 }
 
 static int __init stealth_node_init(void) {
-    // 1. 创建一个类名为 "input" 的类，完美伪装成系统输入设备类
-    // 这样在 /sys/class/input/ 下创建节点，极度安全
-    stealth_class = class_create(THIS_MODULE, "input");
-    if (IS_ERR(stealth_class)) return PTR_ERR(stealth_class);
+    struct dentry *dentry;
+    struct path path;
+    int err;
 
-    // 2. 创建设备节点，挂在 "input" 类下
-    device_create(stealth_class, NULL, MKDEV(0, 0), NULL, TARGET_NODE);
-
-    // 3. 注册 Hook
+    // 1. 注册 IOCTL 拦截器
     kp.pre_handler = handler_pre;
     register_kprobe(&kp);
 
+    // 2. 直接在 VFS 层创建节点，不依赖任何驱动模型
+    err = kern_path("/dev", 0, &path);
+    if (err == 0) {
+        // 创建节点：类型为字符设备，权限 0666
+        dentry = lookup_one_len(TARGET_NODE, path.dentry, strlen(TARGET_NODE));
+        if (!IS_ERR(dentry)) {
+            // 注意：MKDEV(0, 0) 是合法的，它代表一个未关联驱动的字符设备
+            vfs_mknod(d_inode(path.dentry), dentry, S_IFCHR | 0666, MKDEV(0, 0));
+            dput(dentry);
+        }
+        path_put(&path);
+    }
     return 0;
-}
-
-static void __exit stealth_node_exit(void) {
-    device_destroy(stealth_class, MKDEV(0, 0));
-    class_destroy(stealth_class);
-    unregister_kprobe(&kp);
 }
 
 late_initcall(stealth_node_init);
