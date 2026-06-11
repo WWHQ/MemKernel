@@ -122,3 +122,15 @@ void khack_hw_bp_module_exit(void) {
     }
     mutex_unlock(&g_hw_bp_mutex);
 }
+// 补全这个缺失的函数实现
+int khack_hw_breakpoint_init(struct perf_event_attr *attr) {
+    if (!attr) return -EINVAL;
+    
+    memset(attr, 0, sizeof(struct perf_event_attr));
+    attr->type = PERF_TYPE_BREAKPOINT;
+    attr->size = sizeof(struct perf_event_attr);
+    attr->pinned = 1;
+    attr->disabled = 0;
+    
+    return 0;
+}
