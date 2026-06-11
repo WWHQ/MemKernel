@@ -8,7 +8,7 @@
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
-#include "hw_breakpoint.h"
+#include "breakpoint.h"
 
 struct khack_hw_breakpoint {
     struct list_head list;
