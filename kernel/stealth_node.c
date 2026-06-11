@@ -2,17 +2,20 @@
 #include <linux/module.h>
 #include <linux/fs.h>
 #include <linux/miscdevice.h>
+#include <linux/uaccess.h>
 #include "stealth_node.h"
 
 static long dummy_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    // 假设 arg 是一个指针，打印前 32 字节，看看数据特征
     unsigned char buf[32];
-    if (copy_from_user(buf, (void __user *)arg, sizeof(buf)) == 0) {
-        printk(KERN_INFO "virtpipe-debug: cmd=%u, data=%*ph\n", cmd, (int)sizeof(buf), buf);
-    }
     
-    // 如果它是挑战包，你需要根据其特征返回特定的握手包，而不能只返回 0
-    return 0; 
+    // 即使读取失败，也要记录下来，否则如果只是因为读取失败返回错误，判断就不准了
+    if (copy_from_user(buf, (void __user *)arg, sizeof(buf)) == 0) {
+        printk(KERN_INFO "virtpipe-debug: CMD: %u, Data: %*ph\n", cmd, (int)sizeof(buf), buf);
+    }
+
+    // 测试阶段：如果你想观察如果不返回 0 的反应
+    // return -EINVAL; // 这一行替换掉 return 0;
+    return 0; // 默认维持现有逻辑
 }
 
 static const struct file_operations dummy_fops = {
