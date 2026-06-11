@@ -62,9 +62,7 @@ phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
 	{
 		return 0;
 	}
-	// 页物理地址
 	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
-	// 页内偏移
 	page_offset = va & (PAGE_SIZE - 1);
 
 	return page_addr + page_offset;
@@ -105,9 +103,7 @@ phys_addr_t translate_linear_address(struct mm_struct *mm, uintptr_t va)
 	{
 		return 0;
 	}
-	// 页物理地址
 	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
-	// 页内偏移
 	page_offset = va & (PAGE_SIZE - 1);
 
 	return page_addr + page_offset;
@@ -129,7 +125,7 @@ bool read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 	{
 		return false;
 	}
-	if (!valid_phys_addr_range(pa, size))
+	if (!my_valid_phys_addr_range(pa, size))
 	{
 		return false;
 	}
@@ -155,7 +151,7 @@ bool write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 	{
 		return false;
 	}
-	if (!valid_phys_addr_range(pa, size))
+	if (!my_valid_phys_addr_range(pa, size))
 	{
 		return false;
 	}
@@ -179,43 +175,58 @@ bool read_process_memory(
 	void *buffer,
 	size_t size)
 {
-
 	struct task_struct *task;
 	struct mm_struct *mm;
 	struct pid *pid_struct;
-	phys_addr_t pa;
-	bool result = false;
+	bool result = true;
+	size_t bytes_remaining = size;
+	uintptr_t current_addr = addr;
+	char __user *current_buffer = (char __user *)buffer;
 
 	pid_struct = find_get_pid(pid);
-	if (!pid_struct)
-	{
-		return false;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	if (!task)
-	{
-		return false;
-	}
-	mm = get_task_mm(task);
-	if (!mm)
-	{
-		return false;
-	}
+	if (!pid_struct) return false;
 
-	pa = translate_linear_address(mm, addr);
-	if (pa)
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task) return false;
+
+	mm = get_task_mm(task);
+	if (!mm) return false;
+
+	while (bytes_remaining > 0)
 	{
-		result = read_physical_address(pa, buffer, size);
-	}
-	else
-	{
-		if (find_vma(mm, addr))
+		size_t offset_in_page = current_addr & (PAGE_SIZE - 1);
+		size_t bytes_to_boundary = PAGE_SIZE - offset_in_page;
+		size_t chunk_size = bytes_remaining < bytes_to_boundary ? bytes_remaining : bytes_to_boundary;
+
+		phys_addr_t pa = translate_linear_address(mm, current_addr);
+		if (!pa)
 		{
-			if (clear_user(buffer, size) == 0)
+			if (find_vma(mm, current_addr))
 			{
-				result = true;
+				if (clear_user(current_buffer, chunk_size) != 0)
+				{
+					result = false;
+					break;
+				}
+			}
+			else
+			{
+				result = false;
+				break;
 			}
 		}
+		else
+		{
+			if (!read_physical_address(pa, current_buffer, chunk_size))
+			{
+				result = false;
+				break;
+			}
+		}
+
+		bytes_remaining -= chunk_size;
+		current_addr += chunk_size;
+		current_buffer += chunk_size;
 	}
 
 	mmput(mm);
@@ -228,33 +239,45 @@ bool write_process_memory(
 	void *buffer,
 	size_t size)
 {
-
 	struct task_struct *task;
 	struct mm_struct *mm;
 	struct pid *pid_struct;
-	phys_addr_t pa;
-	bool result = false;
+	bool result = true;
+	size_t bytes_remaining = size;
+	uintptr_t current_addr = addr;
+	char __user *current_buffer = (char __user *)buffer;
 
 	pid_struct = find_get_pid(pid);
-	if (!pid_struct)
-	{
-		return false;
-	}
-	task = get_pid_task(pid_struct, PIDTYPE_PID);
-	if (!task)
-	{
-		return false;
-	}
-	mm = get_task_mm(task);
-	if (!mm)
-	{
-		return false;
-	}
+	if (!pid_struct) return false;
 
-	pa = translate_linear_address(mm, addr);
-	if (pa)
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task) return false;
+
+	mm = get_task_mm(task);
+	if (!mm) return false;
+
+	while (bytes_remaining > 0)
 	{
-		result = write_physical_address(pa, buffer, size);
+		size_t offset_in_page = current_addr & (PAGE_SIZE - 1);
+		size_t bytes_to_boundary = PAGE_SIZE - offset_in_page;
+		size_t chunk_size = bytes_remaining < bytes_to_boundary ? bytes_remaining : bytes_to_boundary;
+
+		phys_addr_t pa = translate_linear_address(mm, current_addr);
+		if (!pa)
+		{
+			result = false;
+			break;
+		}
+
+		if (!write_physical_address(pa, current_buffer, chunk_size))
+		{
+			result = false;
+			break;
+		}
+
+		bytes_remaining -= chunk_size;
+		current_addr += chunk_size;
+		current_buffer += chunk_size;
 	}
 
 	mmput(mm);
