@@ -68,6 +68,23 @@ static long dispatch_ioctl_parasite(struct file *const file, unsigned int const 
 		}
 		break;
 	}
+	case OP_HW_BREAKPOINT_CTL:
+	{
+	#ifdef CONFIG_HW_BREAKPOINT_MODE
+	    // 使用栈内存分配，比 kmalloc 更高效、更安全
+	    HW_BREAKPOINT_CTL ctl; 
+	
+	    if (copy_from_user(&ctl, (void __user *)arg, sizeof(HW_BREAKPOINT_CTL))) {
+	        return -EFAULT;
+	    }
+	
+	    // 将用户传来的所有参数（包括地址、动作类型、目标内存、新值）全权交给控制函数
+	    ret = handle_hw_breakpoint_control(&ctl);
+	    return ret;
+	#else
+	    return -ENOTTY;
+	#endif
+	}
 	default:
 		return -ENOIOCTLCMD;
 	}
