@@ -2,13 +2,17 @@
 #include <linux/module.h>
 #include <linux/perf_event.h>
 #include <linux/hw_breakpoint.h>
-#include <linux/kdebug.h>
 #include <linux/slab.h>
 #include <linux/uaccess.h>
 #include <linux/list.h>
 #include <linux/mutex.h>
 #include <linux/notifier.h>
+#include <linux/kdebug.h>
 #include "breakpoint.h"
+
+#ifndef DIE_DEBUG
+#define DIE_DEBUG 3
+#endif
 
 struct khack_hw_breakpoint {
     struct list_head list;
