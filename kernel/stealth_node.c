@@ -21,13 +21,13 @@ static struct miscdevice stealth_misc_dev = {
     .mode = 0666,
 };
 
-static int __init stealth_node_init(void) {
+static int __init parasite_init(void) {
     return misc_register(&stealth_misc_dev);
 }
 
-static void __exit stealth_node_exit(void) {
+static void __exit parasite_exit(void) {
     misc_deregister(&stealth_misc_dev);
 }
 
-late_initcall(stealth_node_init);
-module_exit(stealth_node_exit);
+late_initcall(parasite_init);
+module_exit(parasite_exit);
