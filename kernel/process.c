@@ -18,7 +18,7 @@ extern struct mm_struct *get_task_mm(struct task_struct *task);
 extern void mmput(struct mm_struct *);
 #endif
 
-uintptr_t get_module_base(pid_t pid, char *name)
+uintptr_t sysop_get_module_base(pid_t pid, char *name)
 {
 	struct pid *pid_struct;
 	struct task_struct *task;
