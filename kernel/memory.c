@@ -24,19 +24,22 @@ extern void mmput(struct mm_struct *);
 phys_addr_t sysop_translate_linear_address(struct mm_struct *mm, uintptr_t va)
 {
     pgd_t *pgd = pgd_offset(mm, va);
-    p4d_t *p4d;
     pud_t *pud;
     pmd_t *pmd;
     pte_t *pte;
-
+    
     if (pgd_none(*pgd) || pgd_bad(*pgd)) return 0;
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 61))
-    p4d = p4d_offset(pgd, va);
-    if (p4d_none(*p4d) || p4d_bad(*p4d)) return 0;
-    pud = pud_offset(p4d, va);
+    {
+        p4d_t *p4d = p4d_offset(pgd, va);
+        if (p4d_none(*p4d) || p4d_bad(*p4d)) return 0;
+        pud = pud_offset(p4d, va);
+    }
 #else
     pud = pud_offset(pgd, va);
 #endif
+
     if (pud_none(*pud) || pud_bad(*pud)) return 0;
     pmd = pmd_offset(pud, va);
     if (pmd_none(*pmd)) return 0;
@@ -44,28 +47,6 @@ phys_addr_t sysop_translate_linear_address(struct mm_struct *mm, uintptr_t va)
     if (pte_none(*pte) || !pte_present(*pte)) return 0;
 
     return (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT) + (va & (PAGE_SIZE - 1));
-}
-
-bool sysop_read_physical_address(phys_addr_t pa, void *buffer, size_t size)
-{
-    void *mapped;
-    if (!pfn_valid(__phys_to_pfn(pa))) return false;
-    mapped = ioremap_cache(pa, size);
-    if (!mapped) return false;
-    if (copy_to_user(buffer, mapped, size)) { iounmap(mapped); return false; }
-    iounmap(mapped);
-    return true;
-}
-
-bool sysop_write_physical_address(phys_addr_t pa, void *buffer, size_t size)
-{
-    void *mapped;
-    if (!pfn_valid(__phys_to_pfn(pa))) return false;
-    mapped = ioremap_cache(pa, size);
-    if (!mapped) return false;
-    if (copy_from_user(mapped, buffer, size)) { iounmap(mapped); return false; }
-    iounmap(mapped);
-    return true;
 }
 
 bool sysop_read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t size)
@@ -78,6 +59,7 @@ bool sysop_read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t s
     char __user *current_buffer = (char __user *)buffer;
     bool result = true;
     size_t chunk_size, boundary;
+    phys_addr_t pa; // 变量定义移至函数头部
 
     if (!pid_struct) return false;
     task = get_pid_task(pid_struct, PIDTYPE_PID);
@@ -89,14 +71,17 @@ bool sysop_read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t s
     {
         boundary = PAGE_SIZE - (current_addr & (PAGE_SIZE - 1));
         chunk_size = (bytes_remaining < boundary) ? bytes_remaining : boundary;
-        phys_addr_t pa = sysop_translate_linear_address(mm, current_addr);
+        
+        pa = sysop_translate_linear_address(mm, current_addr);
         if (!pa) {
-            if (find_vma(mm, current_addr) && clear_user(current_buffer, chunk_size) == 0) { }
-            else { result = false; break; }
+            if (find_vma(mm, current_addr) && clear_user(current_buffer, chunk_size) == 0) {
+            } else { result = false; break; }
         } else if (!sysop_read_physical_address(pa, current_buffer, chunk_size)) {
             result = false; break;
         }
-        bytes_remaining -= chunk_size; current_addr += chunk_size; current_buffer += chunk_size;
+        bytes_remaining -= chunk_size; 
+        current_addr += chunk_size; 
+        current_buffer += chunk_size;
     }
     mmput(mm);
     return result;
@@ -112,6 +97,7 @@ bool sysop_write_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t 
     char __user *current_buffer = (char __user *)buffer;
     bool result = true;
     size_t chunk_size, boundary;
+    phys_addr_t pa; // 变量定义移至函数头部
 
     if (!pid_struct) return false;
     task = get_pid_task(pid_struct, PIDTYPE_PID);
@@ -123,11 +109,14 @@ bool sysop_write_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t 
     {
         boundary = PAGE_SIZE - (current_addr & (PAGE_SIZE - 1));
         chunk_size = (bytes_remaining < boundary) ? bytes_remaining : boundary;
-        phys_addr_t pa = sysop_translate_linear_address(mm, current_addr);
+        
+        pa = sysop_translate_linear_address(mm, current_addr);
         if (!pa || !sysop_write_physical_address(pa, current_buffer, chunk_size)) {
             result = false; break;
         }
-        bytes_remaining -= chunk_size; current_addr += chunk_size; current_buffer += chunk_size;
+        bytes_remaining -= chunk_size; 
+        current_addr += chunk_size; 
+        current_buffer += chunk_size;
     }
     mmput(mm);
     return result;
