@@ -23,101 +23,263 @@ extern void mmput(struct mm_struct *);
 
 phys_addr_t sysop_translate_linear_address(struct mm_struct *mm, uintptr_t va)
 {
-    pgd_t *pgd = pgd_offset(mm, va);
-    pud_t *pud;
-    pmd_t *pmd;
-    pte_t *pte;
-    
-    if (pgd_none(*pgd) || pgd_bad(*pgd)) return 0;
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 4, 61))
-    {
-        p4d_t *p4d = p4d_offset(pgd, va);
-        if (p4d_none(*p4d) || p4d_bad(*p4d)) return 0;
-        pud = pud_offset(p4d, va);
-    }
+	pgd_t *pgd;
+	p4d_t *p4d;
+	pmd_t *pmd;
+	pte_t *pte;
+	pud_t *pud;
+
+	phys_addr_t page_addr;
+	uintptr_t page_offset;
+
+	pgd = pgd_offset(mm, va);
+	if (pgd_none(*pgd) || pgd_bad(*pgd))
+	{
+		return 0;
+	}
+	p4d = p4d_offset(pgd, va);
+	if (p4d_none(*p4d) || p4d_bad(*p4d))
+	{
+		return 0;
+	}
+	pud = pud_offset(p4d, va);
+	if (pud_none(*pud) || pud_bad(*pud))
+	{
+		return 0;
+	}
+	pmd = pmd_offset(pud, va);
+	if (pmd_none(*pmd))
+	{
+		return 0;
+	}
+	pte = pte_offset_kernel(pmd, va);
+	if (pte_none(*pte))
+	{
+		return 0;
+	}
+	if (!pte_present(*pte))
+	{
+		return 0;
+	}
+	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
+	page_offset = va & (PAGE_SIZE - 1);
+
+	return page_addr + page_offset;
+}
 #else
-    pud = pud_offset(pgd, va);
+phys_addr_t sysop_translate_linear_address(struct mm_struct *mm, uintptr_t va)
+{
+
+	pgd_t *pgd;
+	pmd_t *pmd;
+	pte_t *pte;
+	pud_t *pud;
+
+	phys_addr_t page_addr;
+	uintptr_t page_offset;
+
+	pgd = pgd_offset(mm, va);
+	if (pgd_none(*pgd) || pgd_bad(*pgd))
+	{
+		return 0;
+	}
+	pud = pud_offset(pgd, va);
+	if (pud_none(*pud) || pud_bad(*pud))
+	{
+		return 0;
+	}
+	pmd = pmd_offset(pud, va);
+	if (pmd_none(*pmd))
+	{
+		return 0;
+	}
+	pte = pte_offset_kernel(pmd, va);
+	if (pte_none(*pte))
+	{
+		return 0;
+	}
+	if (!pte_present(*pte))
+	{
+		return 0;
+	}
+	page_addr = (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT);
+	page_offset = va & (PAGE_SIZE - 1);
+
+	return page_addr + page_offset;
+}
 #endif
 
-    if (pud_none(*pud) || pud_bad(*pud)) return 0;
-    pmd = pmd_offset(pud, va);
-    if (pmd_none(*pmd)) return 0;
-    pte = pte_offset_kernel(pmd, va);
-    if (pte_none(*pte) || !pte_present(*pte)) return 0;
 
-    return (phys_addr_t)(pte_pfn(*pte) << PAGE_SHIFT) + (va & (PAGE_SIZE - 1));
+static inline int sysop_valid_phys_addr_range(phys_addr_t addr, size_t count)
+{
+	return addr + count <= __pa(high_memory);
 }
 
-bool sysop_read_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t size)
+
+bool sysop_read_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct pid *pid_struct = find_get_pid(pid);
-    size_t bytes_remaining = size;
-    uintptr_t current_addr = addr;
-    char __user *current_buffer = (char __user *)buffer;
-    bool result = true;
-    size_t chunk_size, boundary;
-    phys_addr_t pa; // 变量定义移至函数头部
+	void *mapped;
 
-    if (!pid_struct) return false;
-    task = get_pid_task(pid_struct, PIDTYPE_PID);
-    if (!task) return false;
-    mm = get_task_mm(task);
-    if (!mm) return false;
-
-    while (bytes_remaining > 0)
-    {
-        boundary = PAGE_SIZE - (current_addr & (PAGE_SIZE - 1));
-        chunk_size = (bytes_remaining < boundary) ? bytes_remaining : boundary;
-        
-        pa = sysop_translate_linear_address(mm, current_addr);
-        if (!pa) {
-            if (find_vma(mm, current_addr) && clear_user(current_buffer, chunk_size) == 0) {
-            } else { result = false; break; }
-        } else if (!sysop_read_physical_address(pa, current_buffer, chunk_size)) {
-            result = false; break;
-        }
-        bytes_remaining -= chunk_size; 
-        current_addr += chunk_size; 
-        current_buffer += chunk_size;
-    }
-    mmput(mm);
-    return result;
+	if (!pfn_valid(__phys_to_pfn(pa)))
+	{
+		return false;
+	}
+	if (!sysop_valid_phys_addr_range(pa, size))
+	{
+		return false;
+	}
+	mapped = ioremap_cache(pa, size);
+	if (!mapped)
+	{
+		return false;
+	}
+	if (copy_to_user(buffer, mapped, size))
+	{
+		iounmap(mapped);
+		return false;
+	}
+	iounmap(mapped);
+	return true;
 }
 
-bool sysop_write_process_memory(pid_t pid, uintptr_t addr, void *buffer, size_t size)
+bool sysop_write_physical_address(phys_addr_t pa, void *buffer, size_t size)
 {
-    struct task_struct *task;
-    struct mm_struct *mm;
-    struct pid *pid_struct = find_get_pid(pid);
-    size_t bytes_remaining = size;
-    uintptr_t current_addr = addr;
-    char __user *current_buffer = (char __user *)buffer;
-    bool result = true;
-    size_t chunk_size, boundary;
-    phys_addr_t pa; // 变量定义移至函数头部
+	void *mapped;
 
-    if (!pid_struct) return false;
-    task = get_pid_task(pid_struct, PIDTYPE_PID);
-    if (!task) return false;
-    mm = get_task_mm(task);
-    if (!mm) return false;
+	if (!pfn_valid(__phys_to_pfn(pa)))
+	{
+		return false;
+	}
+	if (!sysop_valid_phys_addr_range(pa, size))
+	{
+		return false;
+	}
+	mapped = ioremap_cache(pa, size);
+	if (!mapped)
+	{
+		return false;
+	}
+	if (copy_from_user(mapped, buffer, size))
+	{
+		iounmap(mapped);
+		return false;
+	}
+	iounmap(mapped);
+	return true;
+}
 
-    while (bytes_remaining > 0)
-    {
-        boundary = PAGE_SIZE - (current_addr & (PAGE_SIZE - 1));
-        chunk_size = (bytes_remaining < boundary) ? bytes_remaining : boundary;
-        
-        pa = sysop_translate_linear_address(mm, current_addr);
-        if (!pa || !sysop_write_physical_address(pa, current_buffer, chunk_size)) {
-            result = false; break;
-        }
-        bytes_remaining -= chunk_size; 
-        current_addr += chunk_size; 
-        current_buffer += chunk_size;
-    }
-    mmput(mm);
-    return result;
+bool sysop_read_process_memory(
+	pid_t pid,
+	uintptr_t addr,
+	void *buffer,
+	size_t size)
+{
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct pid *pid_struct;
+	bool result = true;
+	size_t bytes_remaining = size;
+	uintptr_t current_addr = addr;
+	char __user *current_buffer = (char __user *)buffer;
+
+	pid_struct = find_get_pid(pid);
+	if (!pid_struct) return false;
+
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task) return false;
+
+	mm = get_task_mm(task);
+	if (!mm) return false;
+
+	while (bytes_remaining > 0)
+	{
+		size_t offset_in_page = current_addr & (PAGE_SIZE - 1);
+		size_t bytes_to_boundary = PAGE_SIZE - offset_in_page;
+		size_t chunk_size = bytes_remaining < bytes_to_boundary ? bytes_remaining : bytes_to_boundary;
+
+		phys_addr_t pa = sysop_translate_linear_address(mm, current_addr);
+		if (!pa)
+		{
+			if (find_vma(mm, current_addr))
+			{
+				if (clear_user(current_buffer, chunk_size) != 0)
+				{
+					result = false;
+					break;
+				}
+			}
+			else
+			{
+				result = false;
+				break;
+			}
+		}
+		else
+		{
+			if (!read_physical_address(pa, current_buffer, chunk_size))
+			{
+				result = false;
+				break;
+			}
+		}
+
+		bytes_remaining -= chunk_size;
+		current_addr += chunk_size;
+		current_buffer += chunk_size;
+	}
+
+	mmput(mm);
+	return result;
+}
+
+bool sysop_write_process_memory(
+	pid_t pid,
+	uintptr_t addr,
+	void *buffer,
+	size_t size)
+{
+	struct task_struct *task;
+	struct mm_struct *mm;
+	struct pid *pid_struct;
+	bool result = true;
+	size_t bytes_remaining = size;
+	uintptr_t current_addr = addr;
+	char __user *current_buffer = (char __user *)buffer;
+
+	pid_struct = find_get_pid(pid);
+	if (!pid_struct) return false;
+
+	task = get_pid_task(pid_struct, PIDTYPE_PID);
+	if (!task) return false;
+
+	mm = get_task_mm(task);
+	if (!mm) return false;
+
+	while (bytes_remaining > 0)
+	{
+		size_t offset_in_page = current_addr & (PAGE_SIZE - 1);
+		size_t bytes_to_boundary = PAGE_SIZE - offset_in_page;
+		size_t chunk_size = bytes_remaining < bytes_to_boundary ? bytes_remaining : bytes_to_boundary;
+
+		phys_addr_t pa = sysop_translate_linear_address(mm, current_addr);
+		if (!pa)
+		{
+			result = false;
+			break;
+		}
+
+		if (!write_physical_address(pa, current_buffer, chunk_size))
+		{
+			result = false;
+			break;
+		}
+
+		bytes_remaining -= chunk_size;
+		current_addr += chunk_size;
+		current_buffer += chunk_size;
+	}
+
+	mmput(mm);
+	return result;
 }
