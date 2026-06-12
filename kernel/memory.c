@@ -216,7 +216,7 @@ bool sysop_read_process_memory(
 		}
 		else
 		{
-			if (!read_physical_address(pa, current_buffer, chunk_size))
+			if (!sysop_read_physical_address(pa, current_buffer, chunk_size))
 			{
 				result = false;
 				break;
@@ -268,7 +268,7 @@ bool sysop_write_process_memory(
 			break;
 		}
 
-		if (!write_physical_address(pa, current_buffer, chunk_size))
+		if (!sysop_write_physical_address(pa, current_buffer, chunk_size))
 		{
 			result = false;
 			break;
