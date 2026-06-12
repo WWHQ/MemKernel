@@ -31,13 +31,13 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	case OP_READ_MEM:
 	{
 		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-		if (read_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
+		if (sysop_read_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
 		break;
 	}
 	case OP_WRITE_MEM:
 	{
 		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-		if (write_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
+		if (sysop_write_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
 		break;
 	}
 	case OP_MODULE_BASE:
@@ -45,7 +45,7 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 		if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || 
 		    copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0)
 			return -1;
-		mb.base = get_module_base(mb.pid, name);
+		mb.base = sysop_get_module_base(mb.pid, name);
 		if (copy_to_user((void __user *)arg, &mb, sizeof(mb)) != 0) return -1;
 		break;
 	}
