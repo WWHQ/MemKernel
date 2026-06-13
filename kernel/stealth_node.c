@@ -1,23 +1,20 @@
-#include <linux/init.h>
 #include <linux/module.h>
-#include <linux/miscdevice.h>
-#include "stealth_node.h"
+#include <linux/kobject.h>
 
-MODULE_LICENSE("GPL");
-
-static struct miscdevice sysop_misc_dev = {
-    .minor = MISC_DYNAMIC_MINOR,
-    .name = TARGET_NODE_NAME,
-    .mode = 0666,
-};
+static struct kobject *my_kobj;
 
 static int __init sysop_init(void) {
-    return misc_register(&sysop_misc_dev);
+    // 在 /sys/kernel/ 下创建一个名为 "my_folder" 的文件夹
+    my_kobj = kobject_create_and_add("my_folder", kernel_kobj);
+    if (!my_kobj)
+        return -ENOMEM;
+    return 0;
 }
 
 static void __exit sysop_exit(void) {
-    misc_deregister(&sysop_misc_dev);
+    kobject_put(my_kobj);
 }
 
 module_init(sysop_init);
 module_exit(sysop_exit);
+MODULE_LICENSE("GPL");
