@@ -1,7 +1,7 @@
 ifneq ($(KERNELRELEASE),)
 # kbuild part of makefile
 	obj-$(CONFIG_MEMKERNEL)  := memkernel.o
-	memkernel-y := memory.o process.o entry.o hide_proc.o hide_kill.o \
+	memkernel-y := memory.o process.o entry.o hide_proc.o \
                    inline_hook/p_lkrg_main.o \
                    inline_hook/p_hmem.o \
                    inline_hook/p_hook.o \
