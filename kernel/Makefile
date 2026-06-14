@@ -8,7 +8,12 @@ ifneq ($(KERNELRELEASE),)
                    inline_hook/utils/p_memory.o \
                    inline_hook/p_transit_stubs.o
 
-    EXTRA_CFLAGS += -O2 -Wno-error=incompatible-pointer-types -Wno-error=unused-function
+    EXTRA_CFLAGS += -O2 \
+                -Wno-error=incompatible-pointer-types \
+                -Wno-error=unused-function \
+                -Wno-error=unused-variable \
+                -Wno-error=unused-but-set-variable \
+                -Wno-declaration-after-statement
 else
 # normal makefile
 default:
