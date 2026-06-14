@@ -140,6 +140,10 @@ static int __init sysop_init(void) {
     binder_fops->unlocked_ioctl = sysop_hooked_binder_ioctl;
     set_memory_ro((unsigned long)binder_fops & PAGE_MASK, 1);
 
+    // 延迟 5000 毫秒 (5秒) 后执行
+	INIT_DELAYED_WORK(&hook_work, hook_work_func);
+    schedule_delayed_work(&hook_work, msecs_to_jiffies(5000));
+
     return 0;
 }
 
