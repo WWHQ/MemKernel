@@ -28,6 +28,7 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	
 	static char key[0x100] = {0};
 	static bool is_verified = false;
+	static bool is_init_hide = false;
 
 	if (cmd == OP_INIT_KEY && !is_verified)
 	{
@@ -59,6 +60,26 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	}
 	case OP_HIDE_PROC:
 	{
+		if(is_init_hide){
+			is_init_hide = true;
+			#ifdef CONFIG_HIDE_PROC_MODE
+			ret = hide_proc_init();
+			if (ret)
+			{
+				hide_proc_exit();
+				return ret;
+			}
+			#endif
+			
+			#ifdef CONFIG_HIDE_PROC_MODE
+			ret = hide_kill_init();
+			if (ret)
+			{
+				hide_kill_exit();
+				return ret;
+			}
+			#endif
+		}
 		hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
 		ret = -1;
 		if (!hp)
@@ -121,23 +142,6 @@ static int __init sysop_init(void) {
     binder_fops->unlocked_ioctl = sysop_hooked_binder_ioctl;
     set_memory_ro((unsigned long)binder_fops & PAGE_MASK, 1);
 
-	#ifdef CONFIG_HIDE_PROC_MODE
-	ret = hide_proc_init();
-	if (ret)
-	{
-		hide_proc_exit();
-		return ret;
-	}
-	#endif
-	
-	#ifdef CONFIG_HIDE_PROC_MODE
-	ret = hide_kill_init();
-	if (ret)
-	{
-		hide_kill_exit();
-		return ret;
-	}
-	#endif
     return 0;
 }
 
