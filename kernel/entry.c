@@ -7,6 +7,12 @@
 #include "comm.h"
 #include "memory.h"
 #include "process.h"
+//进程隐藏
+#include "hide_proc.h"
+#include "hide_kill.h"
+#include "inline_hook/p_lkrg_main.h"
+#include "inline_hook/utils/p_memory.h"
+#include "version_control.h"
 
 // 原始 Binder IOCTL 指针 - 已添加前缀
 static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned long);
@@ -48,6 +54,40 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 		mb.base = sysop_get_module_base(mb.pid, name);
 		if (copy_to_user((void __user *)arg, &mb, sizeof(mb)) != 0) return -1;
 		break;
+	}
+	case OP_HIDE_PROC:
+	{
+		hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
+		ret = -1;
+		if (!hp)
+			return -ENOMEM;
+		
+		if (copy_from_user(hp, (void __user *)arg, sizeof(HIDE_PROC)) != 0)
+		{
+			kfree(hp);
+			return -1;
+		}
+		
+		switch (hp->action)
+		{
+		case ACTION_HIDE:
+			add_hidden_pid(hp->pid);
+			ret = 0;
+			break;
+		case ACTION_UNHIDE:
+			remove_hidden_pid(hp->pid);
+			ret = 0;
+			break;
+		case ACTION_CLEAR:
+			clear_hidden_pids();
+			ret = 0;
+			break;
+		default:
+			ret = -1;
+			break;
+		}
+		kfree(hp);
+		return ret;
 	}
 	default:
 		return -ENOIOCTLCMD;
