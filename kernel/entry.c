@@ -24,6 +24,7 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	MODULE_BASE mb;
 	char name[0x100] = {0};
 	HIDE_PROC *hp = NULL;
+	int ret = -1;
 	
 	static char key[0x100] = {0};
 	static bool is_verified = false;
