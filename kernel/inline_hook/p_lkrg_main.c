@@ -115,7 +115,7 @@ static int p_lookup_syms_hack(void *unused, const char *name,
 
 
 int get_kallsyms_address(void){
-    int p_ret=-1;
+    // int p_ret=-1;
 
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(5,7,0))
     if(kallsyms_lookup_name_address != 0){
