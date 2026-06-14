@@ -38,7 +38,7 @@ void *hook_mem_zalloc(uintptr_t origin_addr, enum hook_type type)
 {
     u64 start = mem_region_start;
     u64 addr; // Moved declaration to the beginning of the block
-    uintptr_t i; // Moved declaration to the beginning of the block
+    // uintptr_t i; // Moved declaration to the beginning of the block
     for (addr = start; addr < mem_region_end; addr += sizeof(hook_mem_warp_t)) {
         hook_mem_warp_t *wrap = (hook_mem_warp_t *)addr;
         if (wrap->using) continue;
