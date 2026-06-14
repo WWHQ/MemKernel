@@ -6,7 +6,7 @@
 #define pmd_huge(pmd) (pmd_val(pmd) && !(pmd_val(pmd) & PMD_TABLE_BIT))
 
 #if LINUX_VERSION_CODE < KERNEL_VERSION(5, 8, 0)
-int init_kernel_text(unsigned long addr)
+int sysop_init_kernel_text(unsigned long addr)
 {   
     if(!P_SYM(p_sinittext) || !P_SYM(p_einittext)){
         return 0;
@@ -18,14 +18,14 @@ int init_kernel_text(unsigned long addr)
 	return 0;
 }
 
-int core_kernel_text(unsigned long addr)
+int sysop_core_kernel_text(unsigned long addr)
 {
 	if (addr >= (unsigned long)P_SYM(p_stext) &&
 	    addr < (unsigned long)P_SYM(p_etext))
 		return 1;
 
 	if (system_state < SYSTEM_RUNNING &&
-	    init_kernel_text(addr))
+	    sysop_init_kernel_text(addr))
 		return 1;
 	return 0;
 }
