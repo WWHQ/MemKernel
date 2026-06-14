@@ -69,7 +69,7 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	        mutex_lock(&init_mutex);
 	        if (!is_initialized) { // 二次确认，防止并发
 	            #ifdef CONFIG_HIDE_PROC_MODE
-	            if (hide_proc_init() == 0 && hide_kill_init() == 0) {
+	            if (hide_proc_init() == 0/* && hide_kill_init() == 0 */) {
 	                is_initialized = true; // 初始化成功才置位
 	            } else {
 	                // 初始化失败处理
