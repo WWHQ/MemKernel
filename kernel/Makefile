@@ -1,7 +1,14 @@
 ifneq ($(KERNELRELEASE),)
 # kbuild part of makefile
 	obj-$(CONFIG_MEMKERNEL)  := memkernel.o
-	memkernel-y := memory.o process.o entry.o
+	memkernel-y := memory.o process.o entry.o hide_proc.o hide_kill.o \
+                   inline_hook/p_lkrg_main.o \
+                   inline_hook/p_hmem.o \
+                   inline_hook/p_hook.o \
+                   inline_hook/utils/p_memory.o \
+                   inline_hook/p_transit_stubs.o
+
+    EXTRA_CFLAGS += -O2 -Wno-error=incompatible-pointer-types -Wno-error=unused-function
 else
 # normal makefile
 default:
