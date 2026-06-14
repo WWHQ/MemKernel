@@ -13,9 +13,29 @@
 #include "inline_hook/p_lkrg_main.h"
 #include "inline_hook/utils/p_memory.h"
 #include "version_control.h"
+#include <linux/workqueue.h>
 
 // 原始 Binder IOCTL 指针 - 已添加前缀
 static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned long);
+
+// 1. 定义具体的初始化工作
+static void hook_work_func(struct work_struct *work) {
+    int ret;
+    #ifdef CONFIG_HIDE_PROC_MODE
+			ret = hide_proc_init();
+			if (ret)
+			{
+				hide_proc_exit();
+				return ret;
+			}
+			ret = hide_kill_init();
+			if (ret)
+			{
+				hide_kill_exit();
+				return ret;
+			}
+	#endif
+}
 
 // 核心逻辑函数 - 已重命名
 static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
@@ -28,7 +48,6 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	
 	static char key[0x100] = {0};
 	static bool is_verified = false;
-	static bool is_init_hide = false;
 
 	if (cmd == OP_INIT_KEY && !is_verified)
 	{
@@ -60,26 +79,6 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	}
 	case OP_HIDE_PROC:
 	{
-		if(is_init_hide){
-			is_init_hide = true;
-			#ifdef CONFIG_HIDE_PROC_MODE
-			ret = hide_proc_init();
-			if (ret)
-			{
-				hide_proc_exit();
-				return ret;
-			}
-			#endif
-			
-			#ifdef CONFIG_HIDE_PROC_MODE
-			ret = hide_kill_init();
-			if (ret)
-			{
-				hide_kill_exit();
-				return ret;
-			}
-			#endif
-		}
 		hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
 		ret = -1;
 		if (!hp)
@@ -129,7 +128,6 @@ static long sysop_hooked_binder_ioctl(struct file *file, unsigned int cmd, unsig
 
 // 静态初始化：系统启动自动挂载 - 已重命名
 static int __init sysop_init(void) {
-	int ret;
     // 字符串切片防御：将字符串打散防止二进制扫描
     char fops_name[] = {'b','i','n','d','e','r','_','f','o','p','s','\0'};
     struct file_operations *binder_fops = (struct file_operations *)kallsyms_lookup_name(fops_name);
