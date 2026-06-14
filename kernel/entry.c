@@ -13,11 +13,14 @@
 #include "inline_hook/p_lkrg_main.h"
 #include "inline_hook/utils/p_memory.h"
 #include "version_control.h"
+#include <linux/mutex.h>
 
 
 // 原始 Binder IOCTL 指针 - 已添加前缀
 static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned long);
 
+static DEFINE_MUTEX(init_mutex); // 定义一个锁
+static bool is_initialized = false; // 改名，逻辑更清晰
 
 // 核心逻辑函数 - 已重命名
 static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
@@ -61,6 +64,23 @@ static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd
 	}
 	case OP_HIDE_PROC:
 	{
+		// 1. 使用互斥锁保证初始化原子性
+	    if (!is_initialized) {
+	        mutex_lock(&init_mutex);
+	        if (!is_initialized) { // 二次确认，防止并发
+	            #ifdef CONFIG_HIDE_PROC_MODE
+	            if (hide_proc_init() == 0 && hide_kill_init() == 0) {
+	                is_initialized = true; // 初始化成功才置位
+	            } else {
+	                // 初始化失败处理
+	                mutex_unlock(&init_mutex);
+	                return -EFAULT;
+	            }
+	            #endif
+	        }
+	        mutex_unlock(&init_mutex);
+	    }
+		
 		hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
 		ret = -1;
 		if (!hp)
