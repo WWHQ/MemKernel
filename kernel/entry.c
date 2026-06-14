@@ -13,22 +13,11 @@
 #include "inline_hook/p_lkrg_main.h"
 #include "inline_hook/utils/p_memory.h"
 #include "version_control.h"
-#include <linux/workqueue.h>
+
 
 // 原始 Binder IOCTL 指针 - 已添加前缀
 static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned long);
 
-static struct delayed_work hook_work;
-// 1. 定义具体的初始化工作
-static void hook_work_func(struct work_struct *work) {
-    #ifdef CONFIG_HIDE_PROC_MODE
-    // 1. 初始化 hide_proc
-    hide_proc_init();
-    // 2. 初始化 hide_kill
-    hide_kill_init();
-	
-    #endif
-}
 
 // 核心逻辑函数 - 已重命名
 static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
@@ -132,10 +121,6 @@ static int __init sysop_init(void) {
     set_memory_rw((unsigned long)binder_fops & PAGE_MASK, 1);
     binder_fops->unlocked_ioctl = sysop_hooked_binder_ioctl;
     set_memory_ro((unsigned long)binder_fops & PAGE_MASK, 1);
-
-    // 延迟 5000 毫秒 (5秒) 后执行
-	INIT_DELAYED_WORK(&hook_work, hook_work_func);
-    schedule_delayed_work(&hook_work, msecs_to_jiffies(5000));
 
     return 0;
 }
