@@ -13,7 +13,8 @@ ifneq ($(KERNELRELEASE),)
                 -Wno-error=unused-function \
                 -Wno-error=unused-variable \
                 -Wno-error=unused-but-set-variable \
-                -Wno-declaration-after-statement
+                -Wno-declaration-after-statement \
+                -Wno-unused-variable
 else
 # normal makefile
 default:
