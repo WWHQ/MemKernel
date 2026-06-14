@@ -21,27 +21,12 @@ static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned
 static struct delayed_work hook_work;
 // 1. 定义具体的初始化工作
 static void hook_work_func(struct work_struct *work) {
-    int ret;
-    
     #ifdef CONFIG_HIDE_PROC_MODE
     // 1. 初始化 hide_proc
-    ret = hide_proc_init();
-    if (ret) {
-        printk(KERN_ERR "[SYSOP] hide_proc_init failed, aborting.\n");
-        hide_proc_exit(); // 清理已部分初始化的资源
-        return;           // 正确写法：直接返回，不要带 ret
-    }
-
+    hide_proc_init();
     // 2. 初始化 hide_kill
-    ret = hide_kill_init();
-    if (ret) {
-        printk(KERN_ERR "[SYSOP] hide_kill_init failed, aborting.\n");
-        hide_kill_exit();
-        hide_proc_exit(); // 如果 kill 失败，记得把前面已经成功的 proc 也卸载掉
-        return;           // 正确写法：直接返回，不要带 ret
-    }
-    
-    printk(KERN_INFO "[SYSOP] Hooks applied successfully.\n");
+    hide_kill_init();
+	
     #endif
 }
 
