@@ -30,6 +30,7 @@ static ssize_t dev_read(struct file *filep, char __user *buffer, size_t len, lof
 static long dev_ioctl(struct file *filep, unsigned int cmd, unsigned long arg) {
     // 核心伪装：无论 TP 发送什么探测指令，统统返回成功 (0)
     // 这可以让 TP 认为你的虚拟驱动版本与真机一致
+    printk(KERN_ERR "TP_DEBUG: TP called ioctl(0x%X)\n", cmd);
     return 0; 
 }
 
