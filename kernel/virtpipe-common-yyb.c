@@ -1,67 +1,69 @@
 #include <linux/module.h>
-#include <linux/kernel.h>
-#include <linux/kobject.h>
-#include <linux/sysfs.h>
-#include <linux/init.h>
+#include <linux/fs.h>
+#include <linux/uaccess.h>
+#include <linux/device.h>
+#include <linux/slab.h>
 
-#define FAKE_NAME "QEMU HARDDISK"
-#define FAKE_TYPE "MMC"
-#define FAKE_CID  "00000000000000000000000000000000"
+#define DEVICE_NAME "virtpipe-common-yyb"
+#define CLASS_NAME  "virtpipe_class"
 
-static struct kobject *mmc_kobj;
-static struct kobject *device_kobj;
-static struct kobject *block_kobj;
+static int major_number;
+static struct class* virtpipe_class  = NULL;
+static struct device* virtpipe_device = NULL;
 
-static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%s\n", FAKE_NAME);
-}
-static ssize_t type_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%s\n", FAKE_TYPE);
-}
-static ssize_t cid_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
-    return sprintf(buf, "%s\n", FAKE_CID);
+// 伪装的 TP 协议头（模拟握手数据）
+static char fake_handshake[] = {0x55, 0xAA, 0x01, 0x00, 0xDE, 0xAD, 0xBE, 0xEF};
+
+static int dev_open(struct inode *inodep, struct file *filep) {
+    return 0;
 }
 
-static struct kobj_attribute name_attr = __ATTR(name, 0444, name_show, NULL);
-static struct kobj_attribute type_attr = __ATTR(type, 0444, type_show, NULL);
-static struct kobj_attribute cid_attr  = __ATTR(cid, 0444, cid_show, NULL);
+static ssize_t dev_read(struct file *filep, char __user *buffer, size_t len, loff_t *offset) {
+    // 每次读取固定返回伪造的协议数据，防止 TP 检测到 EOF
+    if (*offset >= sizeof(fake_handshake)) return 0;
+    if (copy_to_user(buffer, fake_handshake + *offset, sizeof(fake_handshake) - *offset))
+        return -EFAULT;
+    *offset += sizeof(fake_handshake);
+    return sizeof(fake_handshake);
+}
+
+static long dev_ioctl(struct file *filep, unsigned int cmd, unsigned long arg) {
+    // 核心伪装：无论 TP 发送什么探测指令，统统返回成功 (0)
+    // 这可以让 TP 认为你的虚拟驱动版本与真机一致
+    return 0; 
+}
+
+static int dev_release(struct inode *inodep, struct file *filep) {
+    return 0;
+}
+
+static struct file_operations fops = {
+    .open = dev_open,
+    .read = dev_read,
+    .unlocked_ioctl = dev_ioctl,
+    .release = dev_release,
+};
 
 static int __init virtpipe_init(void) {
-    // 直接在 /sys/ 下创建 block 目录，或者如果已存在则返回其 kobject
-    block_kobj = kobject_create_and_add("block", NULL); // NULL 默认在 /sys 下
-    if (!block_kobj) return -ENOMEM;
+    major_number = register_chrdev(0, DEVICE_NAME, &fops);
+    if (major_number < 0) return major_number;
 
-    mmc_kobj = kobject_create_and_add("mmcblk0", block_kobj);
-    if (!mmc_kobj) {
-        kobject_put(block_kobj);
-        return -ENOMEM;
-    }
-
-    device_kobj = kobject_create_and_add("device", mmc_kobj);
-    if (!device_kobj) {
-        kobject_put(mmc_kobj);
-        kobject_put(block_kobj);
-        return -ENOMEM;
-    }
-
-    sysfs_create_file(device_kobj, &name_attr.attr);
-    sysfs_create_file(device_kobj, &type_attr.attr);
-    sysfs_create_file(device_kobj, &cid_attr.attr);
-
+    virtpipe_class = class_create(THIS_MODULE, CLASS_NAME);
+    virtpipe_device = device_create(virtpipe_class, NULL, MKDEV(major_number, 0), NULL, DEVICE_NAME);
+    
     return 0;
 }
 
 static void __exit virtpipe_exit(void) {
-    sysfs_remove_file(device_kobj, &name_attr.attr);
-    sysfs_remove_file(device_kobj, &type_attr.attr);
-    sysfs_remove_file(device_kobj, &cid_attr.attr);
-    kobject_put(device_kobj);
-    kobject_put(mmc_kobj);
-    kobject_put(block_kobj);
+    device_destroy(virtpipe_class, MKDEV(major_number, 0));
+    class_unregister(virtpipe_class);
+    class_destroy(virtpipe_class);
+    unregister_chrdev(major_number, DEVICE_NAME);
 }
 
 module_init(virtpipe_init);
 module_exit(virtpipe_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_DESCRIPTION("virtpipe-common-yyb");
+MODULE_AUTHOR("Collaborator");
+MODULE_DESCRIPTION("Virtual Pipe for TP Anti-Cheat Spoofing");
