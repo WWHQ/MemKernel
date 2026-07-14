@@ -10,6 +10,7 @@
 
 static struct kobject *mmc_kobj;
 static struct kobject *device_kobj;
+static struct kobject *block_kobj;
 
 static ssize_t name_show(struct kobject *kobj, struct kobj_attribute *attr, char *buf) {
     return sprintf(buf, "%s\n", FAKE_NAME);
@@ -26,15 +27,20 @@ static struct kobj_attribute type_attr = __ATTR(type, 0444, type_show, NULL);
 static struct kobj_attribute cid_attr  = __ATTR(cid, 0444, cid_show, NULL);
 
 static int __init virtpipe_init(void) {
-    struct kobject *block_kobj = kset_find_obj(block_kset, "block");
-    if (!block_kobj) block_kobj = kernel_kobj;
+    // 直接在 /sys/ 下创建 block 目录，或者如果已存在则返回其 kobject
+    block_kobj = kobject_create_and_add("block", NULL); // NULL 默认在 /sys 下
+    if (!block_kobj) return -ENOMEM;
 
     mmc_kobj = kobject_create_and_add("mmcblk0", block_kobj);
-    if (!mmc_kobj) return -ENOMEM;
+    if (!mmc_kobj) {
+        kobject_put(block_kobj);
+        return -ENOMEM;
+    }
 
     device_kobj = kobject_create_and_add("device", mmc_kobj);
     if (!device_kobj) {
         kobject_put(mmc_kobj);
+        kobject_put(block_kobj);
         return -ENOMEM;
     }
 
@@ -51,11 +57,11 @@ static void __exit virtpipe_exit(void) {
     sysfs_remove_file(device_kobj, &cid_attr.attr);
     kobject_put(device_kobj);
     kobject_put(mmc_kobj);
+    kobject_put(block_kobj);
 }
 
 module_init(virtpipe_init);
 module_exit(virtpipe_exit);
 
 MODULE_LICENSE("GPL");
-MODULE_AUTHOR("System");
 MODULE_DESCRIPTION("virtpipe-common-yyb");
