@@ -30,7 +30,6 @@ jobs:
 
     - name: Prepare Kernel Source
       run: |
-        # 1. 下载完全匹配的 4.4.146 内核源码
         wget -q https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.4.146.tar.xz
         tar -xf linux-4.4.146.tar.xz
         mv linux-4.4.146 kernel_source
@@ -40,33 +39,26 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 强行修改版本声明 (欺骗 vermagic 检查)
+        # 1. 设置版本号以通过 vermagic 校验
         sed -i 's/^VERSION = .*/VERSION = 4/' Makefile
         sed -i 's/^PATCHLEVEL = .*/PATCHLEVEL = 4/' Makefile
         sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 146/' Makefile
         sed -i 's/^EXTRAVERSION = .*/EXTRAVERSION = /' Makefile
 
-        # 2. 生成默认配置
+        # 2. 生成配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 3. 开启必须的内核功能，以匹配 Android 系统内核的 vermagic 标签
-        # CONFIG_PREEMPT=y (对应 preempt 标签)
-        # CONFIG_MODVERSIONS=y (对应 modversions 标签)
+        # 3. 【核心修正】强制禁用 CRC 校验和模块签名，这是解决 "no symbol version" 的关键
+        sed -i 's/CONFIG_MODVERSIONS=y/# CONFIG_MODVERSIONS is not set/g' .config
+        sed -i 's/CONFIG_MODULE_SIG=y/# CONFIG_MODULE_SIG is not set/g' .config
         echo "CONFIG_PREEMPT=y" >> .config
-        echo "CONFIG_MODVERSIONS=y" >> .config
-        
-        # 更新配置以应用上述更改
         make ARCH=x86_64 olddefconfig
         
-        # 4. 执行预编译准备
+        # 4. 准备编译环境
         make ARCH=x86_64 modules_prepare
         
-        # 5. 编译驱动模块
+        # 5. 编译模块
         make ARCH=x86_64 CC=gcc -C . M=$(pwd)/drivers/hack modules
-        
-        # 6. 验证 vermagic (查看日志以便排查)
-        echo "编译出的模块 vermagic 信息:"
-        modinfo drivers/hack/*.ko | grep vermagic
 
     - name: Upload Artifact
       if: success()
