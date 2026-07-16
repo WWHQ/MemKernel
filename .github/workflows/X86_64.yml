@@ -1,0 +1,62 @@
+name: Build x86_64 Kernel Module
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - name: Checkout Module Source
+      uses: actions/checkout@v4
+
+    - name: Install Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y build-essential libelf-dev bc bison flex libssl-dev
+
+    - name: Prepare Kernel Source
+      run: |
+        # 1. 下载内核源码 (4.14.186)
+        wget https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.14.186.tar.xz
+        tar -xf linux-4.14.186.tar.xz
+        mv linux-4.14.186 kernel_source
+        
+        # 2. 准备驱动代码
+        mkdir -p kernel_source/drivers/hack
+        cp -a kernel/. kernel_source/drivers/hack/
+
+    - name: Build Module
+      working-directory: ./kernel_source
+      run: |
+        # 3. 准备配置
+        make ARCH=x86_64 x86_64_defconfig
+        scripts/config --file .config --disable DEBUG_PREEMPT
+        scripts/config --file .config --enable CONFIG_SMP --enable CONFIG_PREEMPT --enable CONFIG_MODVERSIONS --enable CONFIG_KERNEL_HACK
+        make ARCH=x86_64 olddefconfig
+        
+        # 4. 【核心修复】深度清理所有 Makefile 中的 -Werror，并对 Host 工具生效
+        find . -name "Makefile*" -o -name "Makefile.build" | xargs sed -i 's/-Werror//g'
+        
+        # 5. 编译
+        # 强制设置 HOSTCFLAGS 覆盖编译器选项，防止 objtool 报错
+        make ARCH=x86_64 \
+             KCFLAGS="-Wno-error" \
+             KBUILD_CFLAGS="-Wno-error" \
+             HOSTCFLAGS="-Wno-error" \
+             -j$(nproc) \
+             modules_prepare
+             
+        make ARCH=x86_64 \
+             KCFLAGS="-Wno-error" \
+             KBUILD_CFLAGS="-Wno-error" \
+             HOSTCFLAGS="-Wno-error" \
+             M=drivers/hack modules
+
+    - name: Upload Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: x86_64-driver
+        path: kernel_source/drivers/hack/*.ko
