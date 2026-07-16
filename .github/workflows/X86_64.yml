@@ -4,15 +4,6 @@ on:
   push:
     branches: [ "main", "x86" ]
   workflow_dispatch:
-    inputs:
-      target_branch:
-        description: '选择编译目标分支'
-        required: true
-        default: 'main'
-        type: choice
-        options:
-        - main
-        - x86
 
 jobs:
   build:
@@ -20,8 +11,6 @@ jobs:
     steps:
     - name: Checkout Repository
       uses: actions/checkout@v4
-      with:
-        ref: ${{ github.event.inputs.target_branch || github.ref_name }}
 
     - name: Install Dependencies
       run: |
@@ -30,36 +19,25 @@ jobs:
 
     - name: Prepare Kernel Source
       run: |
-        wget -q https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.14.186.tar.xz
-        tar -xf linux-4.14.186.tar.xz
-        mv linux-4.14.186 kernel_source
+        # 必须使用 4.4.x 的内核源码，否则 vermagic 永远无法匹配
+        wget -q https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.4.146.tar.xz
+        tar -xf linux-4.4.146.tar.xz
+        mv linux-4.4.146 kernel_source
         mkdir -p kernel_source/drivers/hack
         cp -a kernel/. kernel_source/drivers/hack/
 
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 基础配置
+        # 1. 使用 x86_64 架构配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 仅关闭 Retpoline，不改动其他编译器参数
-        sed -i 's/CONFIG_RETPOLINE=y/CONFIG_RETPOLINE=n/g' .config
-        echo "CONFIG_RETPOLINE=n" >> .config
-        
-        # 3. 仅删除 -Werror，保留其他正常的 -W 参数
-        find . -name "Makefile*" -exec sed -i 's/-Werror//g' {} +
-        
-        # 4. 关键：直接通过环境变量禁警告，而不是修改源码
-        # 通过 KBUILD_CFLAGS="-Wno-error" 传递给编译器，这样最安全
+        # 2. 编译模块
+        # 重点：不要改动 CONFIG_RETPOLINE，因为 4.4 内核可能根本没有这个选项
+        # 直接编译，确保使用本地 gcc
         make ARCH=x86_64 \
              CC=gcc \
-             KBUILD_CFLAGS="-Wno-error -Wno-implicit-function-declaration" \
-             modules_prepare
-             
-        make ARCH=x86_64 \
-             CC=gcc \
-             KBUILD_CFLAGS="-Wno-error -Wno-implicit-function-declaration" \
-             M=drivers/hack modules
+             -C . M=$(pwd)/drivers/hack modules
 
     - name: Upload Artifact
       if: success()
