@@ -21,7 +21,6 @@ jobs:
     - name: Checkout Repository
       uses: actions/checkout@v4
       with:
-        # 使用手动输入的分支，如果没有手动输入，则获取当前触发的分支
         ref: ${{ github.event.inputs.target_branch || github.ref_name }}
 
     - name: Install Dependencies
@@ -40,25 +39,34 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 配置内核
+        # 1. 生成基础配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 深度移除 -Werror，彻底解决编译中断问题
+        # 2. 彻底禁用 Retpoline 检查 (绕过 modern 编译器兼容性限制)
+        sed -i 's/CONFIG_RETPOLINE=y/CONFIG_RETPOLINE=n/g' .config
+        echo "CONFIG_RETPOLINE=n" >> .config
+        
+        # 3. 深度清理所有 Makefile 中的 -Werror，防止编译器因警告中断
         find . -type f \( -name "Makefile" -o -name "Makefile.*" \) -exec sed -i 's/-Werror//g' {} +
         
-        # 3. 准备模块编译环境
+        # 4. 准备编译环境
         make ARCH=x86_64 modules_prepare
         
-        # 4. 编译驱动 (根据分支可以加入差异化逻辑)
-        BRANCH_NAME=${{ github.event.inputs.target_branch || github.ref_name }}
-        echo "正在编译分支: $BRANCH_NAME"
-        
+        # 5. 执行编译
+        # 使用 KCFLAGS 和 KBUILD_CFLAGS 强制忽略警告
         make ARCH=x86_64 \
              KCFLAGS="-Wno-error" \
              KBUILD_CFLAGS="-Wno-error" \
              HOSTCFLAGS="-Wno-error" \
+             CONFIG_RETPOLINE=n \
              -j$(nproc) \
              M=drivers/hack modules
+
+    - name: Debug Output
+      if: always()
+      run: |
+        echo "编译完成或失败，检查 drivers/hack 目录内容："
+        ls -l kernel_source/drivers/hack/
 
     - name: Upload Artifact
       if: success()
