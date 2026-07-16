@@ -2,7 +2,7 @@ name: Build x86_64 Kernel Module
 
 on:
   push:
-    branches: [ "X86" ]
+    branches: [ "x86" ]
   workflow_dispatch:
 
 jobs:
