@@ -39,28 +39,31 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 生成配置
+        # 1. 基础配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 禁用 Retpoline
+        # 2. 仅关闭 Retpoline，不改动其他编译器参数
         sed -i 's/CONFIG_RETPOLINE=y/CONFIG_RETPOLINE=n/g' .config
         echo "CONFIG_RETPOLINE=n" >> .config
         
-        # 3. 【暴力清理】删除所有编译器警告标志
-        # 该操作会删除所有 '-W' 开头的参数，彻底解决编译器版本不兼容引起的参数报错
-        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" \) -exec sed -i 's/-W[a-z-]*//g' {} +
-        # 额外处理可能存在的非法拼写
-        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" \) -exec sed -i 's/-implicit-function-declaration//g' {} +
+        # 3. 仅删除 -Werror，保留其他正常的 -W 参数
+        find . -name "Makefile*" -exec sed -i 's/-Werror//g' {} +
         
-        # 4. 准备编译环境
-        make ARCH=x86_64 CC=gcc modules_prepare
-        
-        # 5. 执行编译
-        make ARCH=x86_64 CC=gcc -j$(nproc) M=drivers/hack modules
+        # 4. 关键：直接通过环境变量禁警告，而不是修改源码
+        # 通过 KBUILD_CFLAGS="-Wno-error" 传递给编译器，这样最安全
+        make ARCH=x86_64 \
+             CC=gcc \
+             KBUILD_CFLAGS="-Wno-error -Wno-implicit-function-declaration" \
+             modules_prepare
+             
+        make ARCH=x86_64 \
+             CC=gcc \
+             KBUILD_CFLAGS="-Wno-error -Wno-implicit-function-declaration" \
+             M=drivers/hack modules
 
     - name: Upload Artifact
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: driver-output-${{ github.event.inputs.target_branch || github.ref_name }}
+        name: driver-output
         path: kernel_source/drivers/hack/*.ko
