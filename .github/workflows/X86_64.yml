@@ -18,7 +18,6 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-    # 修复：确保这里强制签出指定的分支，不产生任何分支漂移
     - name: Checkout Repository
       uses: actions/checkout@v4
       with:
@@ -31,6 +30,7 @@ jobs:
 
     - name: Prepare Kernel Source
       run: |
+        # 1. 获取对应的 Linux 4.4 源码 (适配 Android 4.4.146 内核)
         wget -q https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.4.146.tar.xz
         tar -xf linux-4.4.146.tar.xz
         mv linux-4.4.146 kernel_source
@@ -40,16 +40,21 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 强行修改版本声明，匹配你的 4.4.146 内核
+        # 1. 强行修改内核版本，欺骗 vermagic 校验 (适配 Android 4.4.146)
         sed -i 's/^VERSION = .*/VERSION = 4/' Makefile
         sed -i 's/^PATCHLEVEL = .*/PATCHLEVEL = 4/' Makefile
         sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 146/' Makefile
         sed -i 's/^EXTRAVERSION = .*/EXTRAVERSION = /' Makefile
 
-        # 2. 生成配置
+        # 2. 生成基础配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 3. 编译模块
+        # 3. 执行模块编译准备 (必须)
+        # 此步骤生成 include/generated/autoconf.h 等关键文件
+        make ARCH=x86_64 modules_prepare
+        
+        # 4. 编译驱动模块
+        # 注意：这里 CC=gcc 确保使用标准编译器
         make ARCH=x86_64 CC=gcc -C . M=$(pwd)/drivers/hack modules
 
     - name: Upload Artifact
