@@ -4,13 +4,25 @@ on:
   push:
     branches: [ "main", "x86" ]
   workflow_dispatch:
+    inputs:
+      target_branch:
+        description: '选择编译目标分支'
+        required: true
+        default: 'main'
+        type: choice
+        options:
+        - main
+        - x86
 
 jobs:
   build:
     runs-on: ubuntu-latest
     steps:
+    # 修复：确保这里强制签出指定的分支，不产生任何分支漂移
     - name: Checkout Repository
       uses: actions/checkout@v4
+      with:
+        ref: ${{ github.event.inputs.target_branch || github.ref_name }}
 
     - name: Install Dependencies
       run: |
@@ -19,7 +31,6 @@ jobs:
 
     - name: Prepare Kernel Source
       run: |
-        # 必须使用 4.4.x 的内核源码，否则 vermagic 永远无法匹配
         wget -q https://cdn.kernel.org/pub/linux/kernel/v4.x/linux-4.4.146.tar.xz
         tar -xf linux-4.4.146.tar.xz
         mv linux-4.4.146 kernel_source
@@ -29,19 +40,21 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 使用 x86_64 架构配置
+        # 1. 强行修改版本声明，匹配你的 4.4.146 内核
+        sed -i 's/^VERSION = .*/VERSION = 4/' Makefile
+        sed -i 's/^PATCHLEVEL = .*/PATCHLEVEL = 4/' Makefile
+        sed -i 's/^SUBLEVEL = .*/SUBLEVEL = 146/' Makefile
+        sed -i 's/^EXTRAVERSION = .*/EXTRAVERSION = /' Makefile
+
+        # 2. 生成配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 编译模块
-        # 重点：不要改动 CONFIG_RETPOLINE，因为 4.4 内核可能根本没有这个选项
-        # 直接编译，确保使用本地 gcc
-        make ARCH=x86_64 \
-             CC=gcc \
-             -C . M=$(pwd)/drivers/hack modules
+        # 3. 编译模块
+        make ARCH=x86_64 CC=gcc -C . M=$(pwd)/drivers/hack modules
 
     - name: Upload Artifact
       if: success()
       uses: actions/upload-artifact@v4
       with:
-        name: driver-output
+        name: driver-output-${{ github.event.inputs.target_branch || github.ref_name }}
         path: kernel_source/drivers/hack/*.ko
