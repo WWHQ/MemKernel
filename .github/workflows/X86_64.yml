@@ -39,33 +39,29 @@ jobs:
     - name: Build Module
       working-directory: ./kernel_source
       run: |
-        # 1. 生成基础配置
+        # 1. 生成配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 彻底禁用 Retpoline 检查 (绕过 modern 编译器兼容性限制)
+        # 2. 禁用 Retpoline 以适配现代 GCC
         sed -i 's/CONFIG_RETPOLINE=y/CONFIG_RETPOLINE=n/g' .config
         echo "CONFIG_RETPOLINE=n" >> .config
         
-        # 3. 深度清理所有 Makefile 中的 -Werror，防止编译器因警告中断
-        find . -type f \( -name "Makefile" -o -name "Makefile.*" \) -exec sed -i 's/-Werror//g' {} +
+        # 3. 清理 Makefile 中的 Werror
+        find . -name "Makefile" -o -name "Makefile.*" | xargs sed -i 's/-Werror//g'
         
-        # 4. 准备编译环境
-        make ARCH=x86_64 modules_prepare
+        # 4. 重点：编译准备 (使用 CC=gcc 避免编译器参数冲突)
+        make ARCH=x86_64 CC=gcc modules_prepare
         
-        # 5. 执行编译
-        # 使用 KCFLAGS 和 KBUILD_CFLAGS 强制忽略警告
+        # 5. 编译驱动
+        # 移除了会导致不兼容的隐式参数，只保留最基础的编译标志
         make ARCH=x86_64 \
-             KCFLAGS="-Wno-error" \
-             KBUILD_CFLAGS="-Wno-error" \
-             HOSTCFLAGS="-Wno-error" \
-             CONFIG_RETPOLINE=n \
+             CC=gcc \
              -j$(nproc) \
              M=drivers/hack modules
 
     - name: Debug Output
       if: always()
       run: |
-        echo "编译完成或失败，检查 drivers/hack 目录内容："
         ls -l kernel_source/drivers/hack/
 
     - name: Upload Artifact
