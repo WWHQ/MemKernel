@@ -1,15 +1,16 @@
 ifneq ($(KERNELRELEASE),)
 # kbuild part of makefile
-	obj-$(CONFIG_MEMKERNEL)  := memkernel.o
+	# 直接指定为模块，避免依赖 CONFIG_MEMKERNEL 配置项
+	obj-m := memkernel.o
 	memkernel-y := memory.o process.o entry.o
 else
 # normal makefile
+KDIR ?= /lib/modules/$(shell uname -r)/build
+PWD := $(shell pwd)
+
 default:
-	# Assume kernel source is at KDIR or fail
-	ifeq ($(KDIR),)
-		$(error KDIR is not set. Please define KDIR to point to the kernel source directory.)
-	endif
-	make -C $(KDIR) M=$(PWD) modules
+	$(MAKE) -C $(KDIR) M=$(PWD) modules
+
 clean:
-	rm -f *.ko *.o *.mod.o *.mod.c *.symvers .*.cmd
+	$(MAKE) -C $(KDIR) M=$(PWD) clean
 endif
