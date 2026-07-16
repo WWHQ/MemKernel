@@ -4,147 +4,116 @@
 #include <linux/init.h>
 #include <linux/kallsyms.h>
 #include <linux/set_memory.h>
+#include <linux/mutex.h>
+#include <linux/cdev.h>
+#include <linux/device.h>
+#include <linux/slab.h>
+
+// 假设这些是你原本定义在头文件中的依赖
 #include "comm.h"
 #include "memory.h"
 #include "process.h"
-//进程隐藏
 #include "hide_proc.h"
-#include "inline_hook/p_lkrg_main.h"
-#include "inline_hook/utils/p_memory.h"
-#include "version_control.h"
-#include <linux/mutex.h>
 
-static DEFINE_MUTEX(init_mutex); // 定义一个锁
+// 字符设备相关变量
+static int majorNumber;
+static struct class* sysopClass = NULL;
+static struct device* sysopDevice = NULL;
+static struct cdev sysop_cdev;
+
+static DEFINE_MUTEX(init_mutex);
 static bool is_initialized = false;
 
-// 原始 Binder IOCTL 指针 - 已添加前缀
-static long (*sysop_original_binder_ioctl)(struct file *, unsigned int, unsigned long);
-
-// 核心逻辑函数 - 已重命名
-static long sysop_dispatch_ioctl(struct file *const file, unsigned int const cmd, unsigned long const arg)
+// 原有的核心逻辑函数
+static long sysop_dispatch_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-	COPY_MEMORY cm;
-	MODULE_BASE mb;
-	char name[0x100] = {0};
-	HIDE_PROC *hp = NULL;
-	int ret = -1;
-	
-	static char key[0x100] = {0};
-	static bool is_verified = false;
+    COPY_MEMORY cm;
+    MODULE_BASE mb;
+    char name[0x100] = {0};
+    HIDE_PROC *hp = NULL;
+    int ret = -1;
 
-	if (cmd == OP_INIT_KEY && !is_verified)
-	{
-		if (copy_from_user(key, (void __user *)arg, sizeof(key) - 1) != 0)
-			return -1;
-	}
-	switch (cmd)
-	{
-	case OP_READ_MEM:
-	{
-		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-		if (sysop_read_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
-		break;
-	}
-	case OP_WRITE_MEM:
-	{
-		if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -1;
-		if (sysop_write_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) == false) return -1;
-		break;
-	}
-	case OP_MODULE_BASE:
-	{
-		if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || 
-		    copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0)
-			return -1;
-		mb.base = sysop_get_module_base(mb.pid, name);
-		if (copy_to_user((void __user *)arg, &mb, sizeof(mb)) != 0) return -1;
-		break;
-	}
-	case OP_HIDE_PROC:
-	{
-		// 1. 使用互斥锁保证初始化原子性
-	    if (!is_initialized) {
-	        mutex_lock(&init_mutex);
-	        if (!is_initialized) { // 二次确认，防止并发
-	            #ifdef CONFIG_HIDE_PROC_MODE
-	            if (hide_proc_init() == 0) {
-	                is_initialized = true; // 初始化成功才置位
-	            } else {
-	                // 初始化失败处理
-	                mutex_unlock(&init_mutex);
-	                return -EFAULT;
-	            }
-	            #endif
-	        }
-	        mutex_unlock(&init_mutex);
-	    }
-		hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
-		ret = -1;
-		if (!hp)
-			return -ENOMEM;
-		
-		if (copy_from_user(hp, (void __user *)arg, sizeof(HIDE_PROC)) != 0)
-		{
-			kfree(hp);
-			return -1;
-		}
-		
-		switch (hp->action)
-		{
-		case ACTION_HIDE:
-			add_hidden_pid(hp->pid);
-			ret = 0;
-			break;
-		case ACTION_UNHIDE:
-			remove_hidden_pid(hp->pid);
-			ret = 0;
-			break;
-		case ACTION_CLEAR:
-			clear_hidden_pids();
-			ret = 0;
-			break;
-		default:
-			ret = -1;
-			break;
-		}
-		kfree(hp);
-		return ret;
-	}
-	default:
-		return -ENOIOCTLCMD;
-	}
-	return 0;
-}
+    switch (cmd)
+    {
+    case OP_READ_MEM:
+        if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -EFAULT;
+        return sysop_read_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) ? 0 : -EFAULT;
 
-// 拦截路由函数 - 已重命名
-static long sysop_hooked_binder_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
-    long ret = sysop_dispatch_ioctl(file, cmd, arg);
-    if (ret == -ENOIOCTLCMD) {
-        return sysop_original_binder_ioctl(file, cmd, arg);
+    case OP_WRITE_MEM:
+        if (copy_from_user(&cm, (void __user *)arg, sizeof(cm)) != 0) return -EFAULT;
+        return sysop_write_process_memory(cm.pid, cm.addr, cm.buffer, cm.size) ? 0 : -EFAULT;
+
+    case OP_MODULE_BASE:
+        if (copy_from_user(&mb, (void __user *)arg, sizeof(mb)) != 0 || 
+            copy_from_user(name, (void __user *)mb.name, sizeof(name) - 1) != 0)
+            return -EFAULT;
+        mb.base = sysop_get_module_base(mb.pid, name);
+        return copy_to_user((void __user *)arg, &mb, sizeof(mb)) ? -EFAULT : 0;
+
+    case OP_HIDE_PROC:
+        if (!is_initialized) {
+            mutex_lock(&init_mutex);
+            if (!is_initialized) {
+#ifdef CONFIG_HIDE_PROC_MODE
+                if (hide_proc_init() == 0) is_initialized = true;
+#endif
+            }
+            mutex_unlock(&init_mutex);
+        }
+        
+        hp = kmalloc(sizeof(HIDE_PROC), GFP_KERNEL);
+        if (!hp) return -ENOMEM;
+        if (copy_from_user(hp, (void __user *)arg, sizeof(HIDE_PROC)) != 0) {
+            kfree(hp); return -EFAULT;
+        }
+        
+        if (hp->action == ACTION_HIDE) add_hidden_pid(hp->pid);
+        else if (hp->action == ACTION_UNHIDE) remove_hidden_pid(hp->pid);
+        else if (hp->action == ACTION_CLEAR) clear_hidden_pids();
+        
+        kfree(hp);
+        return 0;
+
+    default:
+        return -EINVAL;
     }
-    return ret;
 }
 
-// 静态初始化：系统启动自动挂载 - 已重命名
+// 设备操作接口
+static long sysop_ioctl(struct file *file, unsigned int cmd, unsigned long arg) {
+    return sysop_dispatch_ioctl(file, cmd, arg);
+}
+
+static struct file_operations fops = {
+    .owner = THIS_MODULE,
+    .unlocked_ioctl = sysop_ioctl,
+};
+
 static int __init sysop_init(void) {
-    // 字符串切片防御：将字符串打散防止二进制扫描
-    char fops_name[] = {'b','i','n','d','e','r','_','f','o','p','s','\0'};
-    struct file_operations *binder_fops = (struct file_operations *)kallsyms_lookup_name(fops_name);
+    dev_t dev;
     
-    if (!binder_fops) return 0;
+    // 1. 注册设备号
+    alloc_chrdev_region(&dev, 0, 1, "sysop_control");
+    majorNumber = MAJOR(dev);
     
-    sysop_original_binder_ioctl = binder_fops->unlocked_ioctl;
+    // 2. 初始化字符设备
+    cdev_init(&sysop_cdev, &fops);
+    cdev_add(&sysop_cdev, dev, 1);
     
-    set_memory_rw((unsigned long)binder_fops & PAGE_MASK, 1);
-    binder_fops->unlocked_ioctl = sysop_hooked_binder_ioctl;
-    set_memory_ro((unsigned long)binder_fops & PAGE_MASK, 1);
-	
+    // 3. 创建设备节点 (/dev/sysop_control)
+    sysopClass = class_create(THIS_MODULE, "sysop");
+    sysopDevice = device_create(sysopClass, NULL, dev, NULL, "sysop_control");
+    
     return 0;
 }
 
 static void __exit sysop_exit(void) {
-    // 这里建议添加恢复 binder_fops 的逻辑
+    device_destroy(sysopClass, MKDEV(majorNumber, 0));
+    class_destroy(sysopClass);
+    cdev_del(&sysop_cdev);
+    unregister_chrdev_region(MKDEV(majorNumber, 0), 1);
 }
 
-late_initcall(sysop_init);
+module_init(sysop_init);
 module_exit(sysop_exit);
+MODULE_LICENSE("GPL");
