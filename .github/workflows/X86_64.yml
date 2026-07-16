@@ -42,27 +42,21 @@ jobs:
         # 1. 生成配置
         make ARCH=x86_64 x86_64_defconfig
         
-        # 2. 禁用 Retpoline 以适配现代 GCC
+        # 2. 禁用 Retpoline
         sed -i 's/CONFIG_RETPOLINE=y/CONFIG_RETPOLINE=n/g' .config
         echo "CONFIG_RETPOLINE=n" >> .config
         
-        # 3. 清理 Makefile 中的 Werror
-        find . -name "Makefile" -o -name "Makefile.*" | xargs sed -i 's/-Werror//g'
+        # 3. 【暴力清理】删除所有编译器警告标志
+        # 该操作会删除所有 '-W' 开头的参数，彻底解决编译器版本不兼容引起的参数报错
+        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" \) -exec sed -i 's/-W[a-z-]*//g' {} +
+        # 额外处理可能存在的非法拼写
+        find . -type f \( -name "Makefile" -o -name "Kbuild" -o -name "Makefile.*" \) -exec sed -i 's/-implicit-function-declaration//g' {} +
         
-        # 4. 重点：编译准备 (使用 CC=gcc 避免编译器参数冲突)
+        # 4. 准备编译环境
         make ARCH=x86_64 CC=gcc modules_prepare
         
-        # 5. 编译驱动
-        # 移除了会导致不兼容的隐式参数，只保留最基础的编译标志
-        make ARCH=x86_64 \
-             CC=gcc \
-             -j$(nproc) \
-             M=drivers/hack modules
-
-    - name: Debug Output
-      if: always()
-      run: |
-        ls -l kernel_source/drivers/hack/
+        # 5. 执行编译
+        make ARCH=x86_64 CC=gcc -j$(nproc) M=drivers/hack modules
 
     - name: Upload Artifact
       if: success()
